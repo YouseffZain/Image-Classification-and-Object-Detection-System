@@ -1,0 +1,6 @@
+streamlit>=1.37
+tensorflow>=2.12
+pillow>=10.3
+numpy>=1.26
+pydicom>=2.4
+requests>=2.32
