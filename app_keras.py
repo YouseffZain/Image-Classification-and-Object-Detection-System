@@ -1,5 +1,5 @@
 # app_keras.py - Streamlit demo for Chest X-ray Classification (Keras/TensorFlow)
-import io, time, tempfile, numpy as np
+import io, time, tempfile, numpy as np, zipfile, os, shutil
 from typing import Tuple
 import streamlit as st
 from PIL import Image
@@ -16,8 +16,8 @@ except Exception:
 
 st.set_page_config(page_title="Chest X-ray Classifier (Keras)", layout="centered")
 st.title("Chest X-ray Classification - Keras Demo App")
-st.markdown("Upload a .keras model and a chest X-ray, then view predicted class probabilities.\n\n"
-            "Disclaimer: Educational demo only; not for medical use.")
+st.markdown("Upload a Keras model (.keras / .h5) or a zipped SavedModel, then upload an image.\n\n"
+            "**Disclaimer:** Educational demo only; not for medical use.")
 
 with st.sidebar:
     st.header("Settings")
@@ -30,8 +30,9 @@ with st.sidebar:
     saliency_on = st.checkbox("Show saliency map (simple)", value=True)
     use_tta = st.checkbox("Use TTA (horizontal flip)", value=False)
     st.divider()
-    model_file = st.file_uploader("Upload .keras model (optional)", type=["keras"], accept_multiple_files=False)
-    weights_url = st.text_input("Weights URL (optional)")
+    # Accept ANY file type to avoid browser filtering issues
+    model_file = st.file_uploader("Upload model (.keras / .h5 / zipped SavedModel)", type=None, accept_multiple_files=False)
+    weights_url = st.text_input("Model URL (optional; direct link to .keras/.h5 or zipped SavedModel)")
     topk = st.slider("Top-k to display", 1, 10, min(5, num_classes_sidebar) if num_classes_sidebar>=5 else num_classes_sidebar)
 
 def pil_from_dicom(file) -> Image.Image:
@@ -82,46 +83,53 @@ def predict(model: keras.Model, pil_img: Image.Image, img_size: int, normalize_c
     elapsed = time.perf_counter() - start
     return probs[0], elapsed, x
 
-def simple_saliency(model: keras.Model, x_input: np.ndarray):
-    try:
-        x = tf.convert_to_tensor(x_input)
-        with tf.GradientTape() as tape:
-            tape.watch(x)
-            preds = model(x, training=False)
-            top_idx = tf.argmax(preds[0])
-            top_score = preds[0, top_idx]
-        grads = tape.gradient(top_score, x)
-        grads = tf.math.abs(grads)
-        grads = grads / (tf.reduce_max(grads) + 1e-12)
-        grads = grads[0].numpy()
-        vis = x[0].numpy()
-        vmin, vmax = vis.min(), vis.max()
-        if vmax > vmin:
-            vis = (vis - vmin) / (vmax - vmin)
-        gray = vis.mean(axis=2, keepdims=True)
-        heat = grads.mean(axis=2, keepdims=True)
-        alpha = 0.6
-        blended = (1 - alpha) * gray + alpha * heat
-        blended = (np.clip(blended, 0, 1) * 255).astype("uint8")
-        blended = np.repeat(blended, 3, axis=2)
-        return Image.fromarray(blended.squeeze())
-    except Exception:
-        return None
+def _bytes_signature(b: bytes) -> str:
+    if b.startswith(b"\x89HDF\r\n\x1a\n"):  # HDF5
+        return "hdf5"
+    if b.startswith(b"PK\x03\x04"):  # ZIP
+        return "zip"
+    return "unknown"
+
+def _extract_zip_to_temp(upload_bytes: bytes) -> str:
+    tmpdir = tempfile.mkdtemp(prefix="savedmodel_")
+    zpath = os.path.join(tmpdir, "model.zip")
+    with open(zpath, "wb") as f:
+        f.write(upload_bytes)
+    with zipfile.ZipFile(zpath, 'r') as zf:
+        zf.extractall(tmpdir)
+    # Heuristic: if a single top-level folder exists, use it
+    entries = [os.path.join(tmpdir, e) for e in os.listdir(tmpdir) if e != "model.zip"]
+    dirs = [e for e in entries if os.path.isdir(e)]
+    if len(dirs) == 1:
+        return dirs[0]
+    return tmpdir
 
 def load_model_from_upload(upload_bytes: bytes):
+    sig = _bytes_signature(upload_bytes[:8])
     try:
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".keras") as tmp:
-            tmp.write(upload_bytes); tmp.flush()
-            path = tmp.name
-        model = keras.models.load_model(path, compile=False)
-        return model, "Model loaded from .keras file."
+        if sig == "hdf5":
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".h5") as tmp:
+                tmp.write(upload_bytes); tmp.flush()
+                path = tmp.name
+            model = keras.models.load_model(path, compile=False)
+            return model, "Loaded .h5 model."
+        elif sig == "zip":
+            folder = _extract_zip_to_temp(upload_bytes)
+            model = keras.models.load_model(folder, compile=False)
+            return model, "Loaded zipped SavedModel."
+        else:
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".keras") as tmp:
+                tmp.write(upload_bytes); tmp.flush()
+                path = tmp.name
+            model = keras.models.load_model(path, compile=False)
+            return model, "Loaded .keras model."
     except Exception as e:
-        return demo_model(num_classes_sidebar, input_shape=(img_size, img_size, 3)), f"Failed to load .keras: {e}. Using demo model."
+        return demo_model(num_classes_sidebar, input_shape=(img_size, img_size, 3)), f"Failed to load: {e}. Using demo model."
 
 def load_model_from_url(url: str):
     try:
         import requests
-        r = requests.get(url, timeout=60); r.raise_for_status()
+        r = requests.get(url, timeout=120); r.raise_for_status()
         return load_model_from_upload(r.content)
     except Exception as e:
         return demo_model(num_classes_sidebar, input_shape=(img_size, img_size, 3)), f"Failed to fetch URL: {e}. Using demo model."
@@ -162,15 +170,32 @@ if uploaded is not None:
         st.write(f"Top {rank}: {names[idx]} - {p:.3f}")
         st.progress(min(max(p, 0.0), 1.0))
 
-    st.caption(f"Inference time: {elapsed*1000:.1f} ms (TensorFlow). "
-               f"{'Loaded .keras model.' if (model_file is not None or weights_url) else 'Demo model.'}")
+    st.caption(f"Inference time: {elapsed*1000:.1f} ms (TensorFlow). " + ("Loaded user model." if (model_file is not None or weights_url) else "Demo model."))
 
     if saliency_on:
         st.subheader("Saliency (simple)")
-        sal_img = simple_saliency(model, x_tensor)
-        if sal_img is not None:
-            st.image(sal_img, caption="Simple saliency (not a medical heatmap)", use_container_width=True)
-        else:
+        try:
+            with tf.GradientTape() as tape:
+                x = tf.convert_to_tensor(x_tensor)
+                tape.watch(x)
+                preds = model(x, training=False)
+                top_idx = tf.argmax(preds[0])
+                top_score = preds[0, top_idx]
+            grads = tape.gradient(top_score, x)
+            grads = tf.math.abs(grads); grads = grads / (tf.reduce_max(grads) + 1e-12)
+            grads = grads[0].numpy()
+            vis = x[0].numpy()
+            vmin, vmax = vis.min(), vis.max()
+            if vmax > vmin:
+                vis = (vis - vmin) / (vmax - vmin)
+            gray = vis.mean(axis=2, keepdims=True)
+            heat = grads.mean(axis=2, keepdims=True)
+            alpha = 0.6
+            blended = (1 - alpha) * gray + alpha * heat
+            blended = (np.clip(blended, 0, 1) * 255).astype("uint8")
+            blended = np.repeat(blended, 3, axis=2)
+            st.image(Image.fromarray(blended.squeeze()), caption="Simple saliency (not a medical heatmap)", use_container_width=True)
+        except Exception:
             st.info("Saliency unavailable for this configuration.")
 else:
     st.info("Upload a PNG/JPG (or DICOM if pydicom is installed) to begin.")
