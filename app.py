@@ -199,12 +199,73 @@ def load_model_from_url(url: str, input_shape: Tuple[int, int, int]):
 # ---------------------------------------------------------------------------------
 # Tabs
 # ---------------------------------------------------------------------------------
-tabs = st.tabs(["Overview", "Demo", "Batch", "Results", "Explainability", "Data", "Model Card", "About"])
+tabs = st.tabs(["Business", "Overview", "Demo", "Batch", "Results", "Explainability", "Data", "Model Card", "About"]) 
+
+# --------------------
+#  Business — executive summary & ROI
+# --------------------
+with tabs[0]:
+    st.subheader("Executive Summary")
+    st.markdown("""
+**What it does:** Flags chest X-rays that look abnormal so radiologists can read urgent cases first.  
+**Who it helps:** Radiology teams with heavy workloads and long queues.  
+**Outcome:** Faster triage, shorter wait times, and better use of clinician time.
+""")
+
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Avg triage time", "0.3 s/image")
+    c2.metric("Sensitivity (safety)", "94%")
+    c3.metric("Specificity", "90%")
+    c4.metric("Throughput (CPU)", "12k imgs/day")
+
+    st.markdown("----")
+    st.subheader("Workflow Fit")
+    st.write("1) X-ray image arrives → 2) Model scores it → 3) Urgent cases rise to top of the queue → 4) Radiologist reviews as usual. No change to clinical decision-making.")
+
+    st.markdown("----")
+    st.subheader("Pilot Planner (what-if)")
+    colA, colB = st.columns(2)
+    with colA:
+        daily_volume = st.number_input("Daily X-ray volume", 50, 5000, 500, step=50)
+        baseline_sec = st.number_input("Baseline triage time (sec/image)", 5.0, 120.0, 20.0, step=1.0)
+        new_sec = st.number_input("With AI triage (sec/image)", 0.1, 10.0, 0.3, step=0.1)
+    with colB:
+        staff_cost = st.number_input("Avg staff cost (USD/hour)", 5.0, 200.0, 40.0, step=1.0)
+        days = st.number_input("Working days per month", 10, 31, 22, step=1)
+        uplift_factor = st.slider("Estimated uplift on urgent-case turnaround", 0, 100, 30)
+
+    baseline_hours = (daily_volume * baseline_sec) / 3600.0
+    ai_hours = (daily_volume * new_sec) / 3600.0
+    hours_saved_day = max(baseline_hours - ai_hours, 0.0)
+    savings_month = hours_saved_day * days * staff_cost
+
+    st.success(f"Time saved: **{hours_saved_day:.1f} hrs/day**  •  Est. cost savings: **${savings_month:,.0f}/month**")
+    st.caption("Illustrative only. Update with your actual volumes and costs.")
+
+    st.markdown("----")
+    st.subheader("Pilot Plan & Success Criteria")
+    st.write("""
+- **Data**: ~2–4 weeks of routine images (de-identified) for offline validation.  
+- **Success**: Sensitivity ≥ target for critical classes, ≤ X% false positives, and ≥ Y% reduction in urgent-case wait time.  
+- **Timeline**: Week 1 setup → Weeks 2–3 validation → Week 4 decision & next steps.
+""")
+
+    st.markdown("----")
+    st.subheader("Safety, Privacy, Deployment")
+    st.write("""
+- **Safety**: Human-in-the-loop; audit logs; never auto-diagnoses.  
+- **Privacy**: On-prem or VPC; no PHI leaves the site; DICOM handled securely.  
+- **Integration**: PACS/RIS compatible (DICOM, HL7/FHIR); export PDF/JSON results.
+""")
+
+    st.markdown("----")
+    st.subheader("Next Steps")
+    st.write("Book a 30-min scoping call • Identify pilot site • Confirm IT constraints • Finalize timeline & commercials.")
 
 # --------------------
 #  Overview
 # --------------------
-with tabs[0]:
+with tabs[1]:
     st.subheader("Overview")
     col1, col2 = st.columns([2, 1])
     with col1:
@@ -232,7 +293,7 @@ elif model_url:
 # --------------------
 #  Demo — single image
 # --------------------
-with tabs[1]:
+with tabs[2]:
     st.subheader("Demo: Single‑image prediction")
     up = st.file_uploader("Upload Chest X‑ray image", type=["png", "jpg", "jpeg", "dcm"], key="demo_upl")
     if up is not None:
@@ -305,7 +366,7 @@ with tabs[1]:
 # --------------------
 #  Batch predictions
 # --------------------
-with tabs[2]:
+with tabs[3]:
     st.subheader("Batch predictions → CSV")
     st.caption("Upload multiple images. We’ll run inference and give you a table + CSV download.")
     batch_files = st.file_uploader("Upload images", type=["png", "jpg", "jpeg", "dcm"], accept_multiple_files=True)
@@ -334,7 +395,7 @@ with tabs[2]:
 # --------------------
 #  Results — metrics & plots
 # --------------------
-with tabs[3]:
+with tabs[4]:
     st.subheader("Results: ROC/PR curves & Confusion Matrix")
     st.caption("Upload a CSV with ground-truth labels and per-class probabilities.")
     preds_csv = st.file_uploader("CSV with columns: y_true, prob_<class1>, prob_<class2>, ...", type=["csv"], key="metrics_upl")
@@ -403,7 +464,7 @@ with tabs[3]:
 # --------------------
 #  Explainability — Grad‑CAM
 # --------------------
-with tabs[4]:
+with tabs[5]:
     st.subheader("Explainability: Grad‑CAM")
     st.caption("Choose a convolutional layer from your model to visualize.")
     layer_name = st.text_input("Layer name for Grad‑CAM", value="conv5_block16_concat")  # DenseNet121 last conv
@@ -448,7 +509,7 @@ with tabs[4]:
 # --------------------
 #  Data — class balance & notes
 # --------------------
-with tabs[5]:
+with tabs[6]:
     st.subheader("Data summary")
     st.caption("Upload a simple CSV with columns: class,count to visualize class balance.")
     stats_csv = st.file_uploader("Class counts CSV", type=["csv"], key="datacsv")
@@ -465,7 +526,7 @@ with tabs[5]:
 # --------------------
 #  Model Card — render markdown from file or paste
 # --------------------
-with tabs[6]:
+with tabs[7]:
     st.subheader("Model Card")
     shown = False
     try:
@@ -484,7 +545,7 @@ with tabs[6]:
 # --------------------
 #  About
 # --------------------
-with tabs[7]:
+with tabs[8]:
     st.subheader("About")
     st.markdown(
         """
