@@ -242,6 +242,25 @@ with tabs[0]:
     st.success(f"Time saved: **{hours_saved_day:.1f} hrs/day**  •  Est. cost savings: **${savings_month:,.0f}/month**")
     st.caption("Illustrative only. Update with your actual volumes and costs.")
 
+    st.markdown("----")
+    st.subheader("Pilot Plan & Success Criteria")
+    st.write("""
+- **Data**: ~2–4 weeks of routine images (de-identified) for offline validation.  
+- **Success**: Sensitivity ≥ target for critical classes, ≤ X% false positives, and ≥ Y% reduction in urgent-case wait time.  
+- **Timeline**: Week 1 setup → Weeks 2–3 validation → Week 4 decision & next steps.
+""")
+
+    st.markdown("----")
+    st.subheader("Safety, Privacy, Deployment")
+    st.write("""
+- **Safety**: Human-in-the-loop; audit logs; never auto-diagnoses.  
+- **Privacy**: On-prem or VPC; no PHI leaves the site; DICOM handled securely.  
+- **Integration**: PACS/RIS compatible (DICOM, HL7/FHIR); export PDF/JSON results.
+""")
+
+    st.markdown("----")
+    st.subheader("Next Steps")
+    st.write("Book a 30-min scoping call • Identify pilot site • Confirm IT constraints • Finalize timeline & commercials.")
 
 # --------------------
 #  Overview
@@ -377,16 +396,47 @@ with tabs[3]:
 #  Results — metrics & plots
 # --------------------
 with tabs[4]:
-    st.subheader("Results: ROC/PR curves & Confusion Matrix")
-    st.caption("Upload a CSV with ground-truth labels and per-class probabilities.")
-    preds_csv = st.file_uploader("CSV with columns: y_true, prob_<class1>, prob_<class2>, ...", type=["csv"], key="metrics_upl")
+    st.subheader("Results: Business‑friendly KPIs & Curves")
+
+    # ==== KPI tiles (replace with your real numbers) ====
+    kpi_left, kpi_right = st.columns(2)
+    with kpi_left:
+        st.metric("Test Accuracy", "99.06%")
+        st.metric("Macro Precision", "0.99")
+        st.metric("Macro Recall", "0.96")
+    with kpi_right:
+        st.metric("Macro F1", "0.99")
+        st.metric("Test Loss", "0.0571")
+
+    # ==== Per‑class bars from your classification report ====
+    import pandas as pd
+    perf_df = pd.DataFrame({
+        "class": ["Cardiomegaly","Pneumonia","Sick","healthy","tuberculosis"],
+        "precision": [1.00, 0.99, 0.99, 1.00, 0.97],
+        "recall":    [0.83, 0.99, 1.00, 1.00, 1.00],
+        "f1":        [0.90, 0.99, 0.99, 1.00, 0.99],
+        "support":   [23, 386, 220, 232, 101],
+    })
+
+    st.markdown("**Per‑class precision/recall/F1**")
+    st.bar_chart(perf_df.set_index("class")["precision"])
+    st.bar_chart(perf_df.set_index("class")["recall"])
+    st.bar_chart(perf_df.set_index("class")["f1"])
+
+    st.caption("Bars reflect your latest classification report. Update these defaults after each training run or wire them from a file.")
+
+    # ==== Optional curves from a predictions CSV ====
+    st.markdown("---")
+    st.subheader("Curves (optional)")
+    st.caption("Upload a CSV with columns: y_true, prob_<class1>, prob_<class2>, … to draw ROC/PR curves. Confusion matrix is optional.")
+
+    preds_csv = st.file_uploader("Upload predictions CSV for curves (optional)", type=["csv"], key="metrics_upl")
     if preds_csv:
-        import pandas as pd
         import matplotlib.pyplot as plt
         from sklearn.metrics import roc_curve, auc, precision_recall_curve, confusion_matrix
-
+        import numpy as np
         dfm = pd.read_csv(preds_csv)
-        # Build mapping for y_true
+        # Map labels if strings
         if dfm["y_true"].dtype == object:
             name_to_idx = {c: i for i, c in enumerate(CLASS_NAMES)}
             y_true = dfm["y_true"].map(name_to_idx).values
@@ -395,7 +445,6 @@ with tabs[4]:
         # Detect probability columns
         prob_cols = [f"prob_{c}" for c in CLASS_NAMES if f"prob_{c}" in dfm.columns]
         if not prob_cols:
-            # Fallback: try exact class-name columns
             prob_cols = [c for c in CLASS_NAMES if c in dfm.columns]
         if not prob_cols:
             st.error("Could not find probability columns. Expected prob_<class> or columns named after classes.")
@@ -403,7 +452,7 @@ with tabs[4]:
         y_prob = dfm[prob_cols].values
         k = y_prob.shape[1]
 
-        # ROC per-class
+        # ROC per class
         fig1 = plt.figure()
         rocs = []
         for i in range(k):
@@ -411,34 +460,34 @@ with tabs[4]:
             rocs.append(auc(fpr, tpr))
             plt.plot(fpr, tpr, label=f"{CLASS_NAMES[i]} (AUC={rocs[-1]:.3f})")
         plt.plot([0, 1], [0, 1], "--")
-        plt.xlabel("FPR"); plt.ylabel("TPR"); plt.title("ROC (per-class)"); plt.legend()
+        plt.xlabel("FPR"); plt.ylabel("TPR"); plt.title("ROC (per class)"); plt.legend()
         st.pyplot(fig1, clear_figure=True)
 
-        # PR per-class
+        # PR per class
         fig2 = plt.figure()
         prs = []
         for i in range(k):
             prec, rec, _ = precision_recall_curve((y_true == i).astype(int), y_prob[:, i])
-            # Use AUC over PR curve
-            # np.trapz integrates precision as a function of recall
             prs.append(np.trapz(prec, rec))
             plt.plot(rec, prec, label=f"{CLASS_NAMES[i]} (AUPRC={prs[-1]:.3f})")
-        plt.xlabel("Recall"); plt.ylabel("Precision"); plt.title("PR (per-class)"); plt.legend()
+        plt.xlabel("Recall"); plt.ylabel("Precision"); plt.title("PR (per class)"); plt.legend()
         st.pyplot(fig2, clear_figure=True)
 
-        # Confusion matrix at argmax
-        y_pred = np.argmax(y_prob, axis=1)
-        cm = confusion_matrix(y_true, y_pred, labels=list(range(k)))
-        fig3 = plt.figure()
-        plt.imshow(cm, interpolation="nearest")
-        plt.xticks(range(k), CLASS_NAMES, rotation=45, ha="right")
-        plt.yticks(range(k), CLASS_NAMES)
-        plt.title("Confusion matrix")
-        for i in range(k):
-            for j in range(k):
-                plt.text(j, i, cm[i, j], ha='center', va='center')
-        plt.tight_layout()
-        st.pyplot(fig3, clear_figure=True)
+        # Confusion matrix (optional, business toggle)
+        show_cm = st.checkbox("Show confusion matrix (technical view)", value=False)
+        if show_cm:
+            y_pred = np.argmax(y_prob, axis=1)
+            cm = confusion_matrix(y_true, y_pred, labels=list(range(k)))
+            fig3 = plt.figure()
+            plt.imshow(cm, interpolation="nearest")
+            plt.xticks(range(k), CLASS_NAMES, rotation=45, ha="right")
+            plt.yticks(range(k), CLASS_NAMES)
+            plt.title("Confusion matrix")
+            for i in range(k):
+                for j in range(k):
+                    plt.text(j, i, cm[i, j], ha='center', va='center')
+            plt.tight_layout()
+            st.pyplot(fig3, clear_figure=True)
 
         st.json({"AUROC_macro": float(np.mean(rocs)), "AUPRC_macro": float(np.mean(prs))})
 
@@ -491,18 +540,66 @@ with tabs[5]:
 #  Data — class balance & notes
 # --------------------
 with tabs[6]:
-    st.subheader("Data summary")
-    st.caption("Upload a simple CSV with columns: class,count to visualize class balance.")
-    stats_csv = st.file_uploader("Class counts CSV", type=["csv"], key="datacsv")
-    if stats_csv:
-        import pandas as pd
-        dds = pd.read_csv(stats_csv)
-        try:
-            chart_df = dds.set_index("class")["count"]
-            st.bar_chart(chart_df)
-        except Exception:
-            st.dataframe(dds)
-    st.markdown("Add notes on splits, preprocessing, and licenses here.")
+    st.subheader("Dataset Summary & Class Balance")
+
+    # === Built‑in summary from your message (replace with your actual counts when you retrain) ===
+    train_counts = {"Pneumonia": 3082, "healthy": 1851, "tuberculosis": 811, "Sick": 1765, "Cardiomegaly": 1000}
+    val_counts   = {"Pneumonia": 385,  "healthy": 231,  "tuberculosis": 102,  "Sick": 221,  "Cardiomegaly": 23}
+    test_counts  = {"Pneumonia": 386,  "healthy": 232,  "tuberculosis": 101,  "Sick": 220,  "Cardiomegaly": 23}
+
+    total_train = sum(train_counts.values())
+    total_val   = sum(val_counts.values())
+    total_test  = sum(test_counts.values())
+    total_all   = total_train + total_val + total_test
+
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("Train", f"{total_train}")
+    m2.metric("Validation", f"{total_val}")
+    m3.metric("Test", f"{total_test}")
+    m4.metric("Total", f"{total_all}")
+
+    st.markdown("---")
+
+    import pandas as pd
+    import numpy as np
+    import matplotlib.pyplot as plt
+
+    # Build long DataFrame for charts
+    def to_rows(split_name, d):
+        return [{"split": split_name, "class": k, "count": v} for k, v in d.items()]
+
+    df_counts = pd.DataFrame(to_rows("Train", train_counts) + to_rows("Validation", val_counts) + to_rows("Test", test_counts))
+
+    # Per‑split bars
+    st.markdown("**Per‑split class counts**")
+    c1, c2, c3 = st.columns(3)
+    c1.bar_chart(df_counts[df_counts["split"]=="Train"].set_index("class")["count"], use_container_width=True)
+    c2.bar_chart(df_counts[df_counts["split"]=="Validation"].set_index("class")["count"], use_container_width=True)
+    c3.bar_chart(df_counts[df_counts["split"]=="Test"].set_index("class")["count"], use_container_width=True)
+
+    # Overall class distribution (Train+Val+Test)
+    st.markdown("**Overall class distribution (all splits)**")
+    overall = df_counts.groupby("class")["count"].sum().sort_values(ascending=False)
+    st.bar_chart(overall)
+
+    # 100% stacked bars (class mix within each split)
+    st.markdown("**Class mix by split (100% stacked)**")
+    pivot = df_counts.pivot(index="class", columns="split", values="count").fillna(0)
+    pct = pivot / pivot.sum(axis=0, keepdims=True)
+    fig, ax = plt.subplots(figsize=(7,3))
+    bottoms = np.zeros(len(pct.columns))
+    for cls in pct.index:
+        ax.bar(pct.columns, pct.loc[cls].values, bottom=bottoms, label=cls)
+        bottoms += pct.loc[cls].values
+    ax.set_ylim(0,1); ax.set_ylabel("Share")
+    ax.legend(bbox_to_anchor=(1.02,1), loc="upper left")
+    st.pyplot(fig, clear_figure=True)
+
+    st.caption("These charts are seeded with your provided counts. Replace with live stats or upload a CSV if you prefer.")
+
+    st.markdown("---")
+    st.subheader("Notes")
+    st.markdown("Document your splits, de‑identification, preprocessing, and dataset licenses here.")
 
 # --------------------
 #  Model Card — render markdown from file or paste
