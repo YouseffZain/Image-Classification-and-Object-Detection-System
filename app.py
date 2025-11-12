@@ -242,25 +242,6 @@ with tabs[0]:
     st.success(f"Time saved: **{hours_saved_day:.1f} hrs/day**  •  Est. cost savings: **${savings_month:,.0f}/month**")
     st.caption("Illustrative only. Update with your actual volumes and costs.")
 
-    st.markdown("----")
-    st.subheader("Pilot Plan & Success Criteria")
-    st.write("""
-- **Data**: ~2–4 weeks of routine images (de-identified) for offline validation.  
-- **Success**: Sensitivity ≥ target for critical classes, ≤ X% false positives, and ≥ Y% reduction in urgent-case wait time.  
-- **Timeline**: Week 1 setup → Weeks 2–3 validation → Week 4 decision & next steps.
-""")
-
-    st.markdown("----")
-    st.subheader("Safety, Privacy, Deployment")
-    st.write("""
-- **Safety**: Human-in-the-loop; audit logs; never auto-diagnoses.  
-- **Privacy**: On-prem or VPC; no PHI leaves the site; DICOM handled securely.  
-- **Integration**: PACS/RIS compatible (DICOM, HL7/FHIR); export PDF/JSON results.
-""")
-
-    st.markdown("----")
-    st.subheader("Next Steps")
-    st.write("Book a 30-min scoping call • Identify pilot site • Confirm IT constraints • Finalize timeline & commercials.")
 
 # --------------------
 #  Overview
